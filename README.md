@@ -7,6 +7,9 @@ sdk: gradio
 sdk_version: 6.1.0
 app_file: app.py
 pinned: false
+hf_oauth: true
+hf_oauth_scopes:
+  - inference-api
 ---
 
 # 📊 Visualizator
@@ -52,24 +55,24 @@ The application will launch and be accessible at `http://localhost:7860`
    - `requirements.txt`
    - `README.md`
 
-3. (Optional) Enable OAuth for automatic authentication:
-   - Go to your Space settings
-   - Enable OAuth under the "Security" section
-   - Follow the guide: https://huggingface.co/docs/hub/en/spaces-oauth
+3. OAuth is automatically enabled via the README.md configuration
+   - Users will see a "Sign in with Hugging Face" button
+   - OAuth provides automatic authentication with the `inference-api` scope
+   - No manual token input required
 
 ## Usage
 
-1. **Enter Data URL**: Provide a URL to your CSV or TSV data file
-   - Example: `https://raw.githubusercontent.com/vega/vega-datasets/master/data/cars.json`
+1. **Sign In**: Click "Sign in with Hugging Face" to authenticate (when deployed to Spaces)
+   - This provides automatic access to the Inference API
+   - For local development, the app will use unauthenticated API access
 
-2. **Write Your Query**: Describe the visualization you want in natural language
+2. **Enter Data URL**: Provide a URL to your CSV or TSV data file
+   - Example: `https://raw.githubusercontent.com/vega/vega-datasets/master/data/cars.csv`
+
+3. **Write Your Query**: Describe the visualization you want in natural language
    - Example: "Show me a scatter plot of horsepower vs miles per gallon"
    - Example: "Create a bar chart of average acceleration by origin"
    - Example: "Display a line chart showing the trend of displacement over time"
-
-3. **Add Token (Optional)**: Enter your HuggingFace API token for authenticated access
-   - Get your token at: https://huggingface.co/settings/tokens
-   - Required if running without OAuth or for higher rate limits
 
 4. **Generate**: Click "Generate Visualization" and the app will:
    - Load your data from the URL
@@ -98,7 +101,7 @@ The application will launch and be accessible at `http://localhost:7860`
 - **Data Processing**: Pandas for data manipulation
 - **LLM Integration**: Hugging Face Inference API (Llama-3.3-70B-Instruct)
 - **Visualization**: Vega-Lite specifications rendered via Gradio Plot
-- **Authentication**: Optional HuggingFace OAuth integration
+- **Authentication**: HuggingFace OAuth integration with `inference-api` scope
 
 ## Example Queries
 
@@ -110,9 +113,10 @@ The application will launch and be accessible at `http://localhost:7860`
 
 ## Configuration
 
-### Environment Variables
+### OAuth Scopes
 
-- `HF_TOKEN`: Optional default Hugging Face API token
+The Space is configured with the following OAuth scope in README.md:
+- `inference-api`: Required for using the Hugging Face Inference API to generate visualizations
 
 ## Troubleshooting
 
@@ -123,11 +127,11 @@ The application will launch and be accessible at `http://localhost:7860`
 **Issue**: "Failed to generate valid specification after 5 attempts"
 - Try rephrasing your query to be more specific
 - Ensure your data has appropriate columns for the requested visualization
-- Verify your HuggingFace token is valid (if using one)
+- Make sure you're signed in with your Hugging Face account
 
-**Issue**: Rate limiting
-- Provide a HuggingFace API token for higher rate limits
-- Consider deploying to a Space with OAuth enabled
+**Issue**: Rate limiting or authentication errors
+- Sign in with your Hugging Face account for authenticated API access
+- The OAuth integration provides automatic authentication with proper rate limits
 
 ## License
 

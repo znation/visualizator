@@ -196,14 +196,14 @@ def create_visualization(
     log_messages.append(f"\n✗ {error_msg}")
     return None, error_msg, "\n".join(log_messages)
 
-def visualize(data_url: str, query: str, token: Optional[str] = None):
+def visualize(data_url: str, query: str, oauth_token: gr.OAuthToken | None):
     """
     Main function to create visualization for Gradio interface.
 
     Args:
         data_url: URL to the data file
         query: User's visualization query
-        token: Optional HuggingFace token from OAuth
+        oauth_token: OAuth token from Gradio (None if not logged in)
 
     Returns:
         Tuple of (vega_lite_spec_dict, log_message, error_message)
@@ -213,6 +213,9 @@ def visualize(data_url: str, query: str, token: Optional[str] = None):
 
     if not query or not query.strip():
         return None, "", "Please provide a visualization query"
+
+    # Extract token from OAuth if user is logged in
+    token = oauth_token.token if oauth_token is not None else None
 
     spec, error, log = create_visualization(data_url.strip(), query.strip(), token)
 
@@ -227,6 +230,9 @@ def create_app():
         gr.Markdown("# 📊 Visualizator")
         gr.Markdown("Generate data visualizations from URLs using natural language queries")
 
+        # Add login button
+        gr.LoginButton()
+
         with gr.Row():
             with gr.Column():
                 data_url_input = gr.Textbox(
@@ -238,12 +244,6 @@ def create_app():
                     label="Visualization Query",
                     placeholder="Show me the relationship between X and Y",
                     lines=3
-                )
-                token_input = gr.Textbox(
-                    label="HuggingFace Token (optional)",
-                    placeholder="hf_...",
-                    type="password",
-                    lines=1
                 )
                 submit_btn = gr.Button("Generate Visualization", variant="primary")
 
@@ -263,11 +263,14 @@ def create_app():
         ### Supported Formats
         - CSV files (.csv)
         - TSV files (.tsv)
+
+        ### Note
+        Sign in with your Hugging Face account to use the Inference API for generating visualizations.
         """)
 
         submit_btn.click(
             fn=visualize,
-            inputs=[data_url_input, query_input, token_input],
+            inputs=[data_url_input, query_input],
             outputs=[output_plot, log_output, error_output]
         )
 
