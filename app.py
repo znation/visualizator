@@ -233,8 +233,27 @@ def create_app():
         # Add login button
         gr.LoginButton()
 
+        # Dataset suggestions
+        dataset_suggestions = {
+            "Cars Dataset (Vega)": "https://raw.githubusercontent.com/vega/vega-datasets/master/data/cars.csv",
+            "Movies Dataset (Vega)": "https://raw.githubusercontent.com/vega/vega-datasets/master/data/movies.csv",
+            "Iris Flowers": "https://raw.githubusercontent.com/mwaskom/seaborn-data/master/iris.csv",
+            "Titanic Passengers": "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv",
+            "World Population": "https://raw.githubusercontent.com/datasets/population/master/data/population.csv",
+            "COVID-19 Data": "https://raw.githubusercontent.com/datasets/covid-19/master/data/countries-aggregated.csv",
+            "Global Temperature": "https://raw.githubusercontent.com/datasets/global-temp/master/data/annual.csv",
+            "Netflix Titles": "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-04-20/netflix_titles.csv",
+            "Pokemon Stats": "https://raw.githubusercontent.com/lgreski/pokemonData/master/Pokemon.csv",
+            "NYC Airbnb Data": "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-04-05/airbnb.csv"
+        }
+
         with gr.Row():
             with gr.Column():
+                dataset_dropdown = gr.Dropdown(
+                    label="Select a Sample Dataset (Optional)",
+                    choices=list(dataset_suggestions.keys()),
+                    value=None
+                )
                 data_url_input = gr.Textbox(
                     label="Data URL",
                     placeholder="https://example.com/data.csv",
@@ -267,6 +286,18 @@ def create_app():
         ### Note
         Sign in with your Hugging Face account to use the Inference API for generating visualizations.
         """)
+
+        # Update URL field when dataset is selected
+        def update_url_from_dropdown(dataset_name):
+            if dataset_name:
+                return dataset_suggestions[dataset_name]
+            return ""
+
+        dataset_dropdown.change(
+            fn=update_url_from_dropdown,
+            inputs=[dataset_dropdown],
+            outputs=[data_url_input]
+        )
 
         submit_btn.click(
             fn=visualize,
