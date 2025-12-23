@@ -103,6 +103,7 @@ Requirements:
 4. Include appropriate titles and labels
 5. Make sure the field names match exactly with the column names from the schema
 6. Return ONLY the JSON object, no markdown formatting or explanations
+7. Use the Vega-Lite schema version 5, as described at https://vega.github.io/schema/vega-lite/v5.json
 
 Generate the Vega-Lite specification now:"""
 
@@ -226,6 +227,9 @@ def visualize(data_url: str, query: str, oauth_token: gr.OAuthToken | None):
     if error:
         return None, log, error
     
+    # fix up schema in case the LLM hallucinated (sometimes it generates wrong URLs resulting in a silent error in Altair)
+    spec['$schema'] = 'https://vega.github.io/schema/vega-lite/v5.json'
+
     print(f"Spec is {spec}", file=sys.stderr)
     chart = alt.Chart.from_dict(spec, validate=True)
     print(f"Chart is {chart}", file=sys.stderr)
