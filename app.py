@@ -1,3 +1,4 @@
+import altair as alt
 import gradio as gr
 import pandas as pd
 import requests
@@ -223,8 +224,9 @@ def visualize(data_url: str, query: str, oauth_token: gr.OAuthToken | None):
 
     if error:
         return None, log, error
-
-    return spec, log, ""
+    
+    chart = alt.Chart.from_dict(spec)
+    return chart, log, ""
 
 # Create Gradio interface
 def create_app():
