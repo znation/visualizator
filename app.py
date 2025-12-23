@@ -227,7 +227,7 @@ def visualize(data_url: str, query: str, oauth_token: gr.OAuthToken | None):
         return None, log, error
     
     print(f"Spec is {spec}", file=sys.stderr)
-    chart = alt.Chart.from_dict(spec)
+    chart = alt.Chart.from_dict(spec, validate=True)
     print(f"Chart is {chart}", file=sys.stderr)
     return chart, log, ""
 
