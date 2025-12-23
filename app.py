@@ -469,7 +469,20 @@ def create_app():
         gr.Markdown("Generate data visualizations from URLs using natural language queries")
 
         # Add login button
-        gr.LoginButton()
+        login_button = gr.LoginButton()
+
+        # Login required message (visible when not logged in)
+        with gr.Group(visible=True) as login_required_group:
+            gr.Markdown("""
+            ## Login Required
+
+            Please sign in with your Hugging Face account to use Visualizator.
+
+            This app uses the Hugging Face Inference API to generate visualizations,
+            which requires authentication.
+
+            Click the "Sign in with Hugging Face" button above to get started.
+            """)
 
         # Dataset suggestions
         dataset_suggestions = {
@@ -485,46 +498,63 @@ def create_app():
             "NYC Airbnb Data": "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-04-05/airbnb.csv"
         }
 
-        with gr.Row():
-            with gr.Column():
-                dataset_dropdown = gr.Dropdown(
-                    label="Select a Sample Dataset (Optional)",
-                    choices=list(dataset_suggestions.keys()),
-                    value=None
-                )
-                data_url_input = gr.Textbox(
-                    label="Data URL",
-                    placeholder="https://example.com/data.csv",
-                    lines=1
-                )
-                query_input = gr.Textbox(
-                    label="Visualization Query",
-                    placeholder="Show me the relationship between X and Y",
-                    lines=3
-                )
-                submit_btn = gr.Button("Generate Visualization", variant="primary")
+        # Main UI (hidden when not logged in)
+        with gr.Group(visible=False) as main_ui_group:
+            with gr.Row():
+                with gr.Column():
+                    dataset_dropdown = gr.Dropdown(
+                        label="Select a Sample Dataset (Optional)",
+                        choices=list(dataset_suggestions.keys()),
+                        value=None
+                    )
+                    data_url_input = gr.Textbox(
+                        label="Data URL",
+                        placeholder="https://example.com/data.csv",
+                        lines=1
+                    )
+                    query_input = gr.Textbox(
+                        label="Visualization Query",
+                        placeholder="Show me the relationship between X and Y",
+                        lines=3
+                    )
+                    submit_btn = gr.Button("Generate Visualization", variant="primary")
 
-            with gr.Column():
-                output_plot = gr.Plot(label="Visualization")
+                with gr.Column():
+                    output_plot = gr.Plot(label="Visualization")
 
-        with gr.Row():
-            log_output = gr.Textbox(label="Process Log", lines=10, interactive=False)
-            error_output = gr.Textbox(label="Error Message", lines=5, interactive=False)
+            with gr.Row():
+                log_output = gr.Textbox(label="Process Log", lines=10, interactive=False)
+                error_output = gr.Textbox(label="Error Message", lines=5, interactive=False)
 
-        gr.Markdown("""
-        ### Examples
-        - **Query**: "Show me a bar chart of sales by category"
-        - **Query**: "Create a scatter plot of price vs quantity with color by region"
-        - **Query**: "Display a line chart showing the trend over time"
+            gr.Markdown("""
+            ### Examples
+            - **Query**: "Show me a bar chart of sales by category"
+            - **Query**: "Create a scatter plot of price vs quantity with color by region"
+            - **Query**: "Display a line chart showing the trend over time"
 
-        ### Supported Formats
-        - CSV files (.csv)
-        - TSV files (.tsv)
-        - JSON files (.json)
+            ### Supported Formats
+            - CSV files (.csv)
+            - TSV files (.tsv)
+            - JSON files (.json)
+            """)
 
-        ### Note
-        Sign in with your Hugging Face account to use the Inference API for generating visualizations.
-        """)
+        # Toggle UI visibility based on login state
+        def update_ui_visibility(request: gr.Request):
+            # Check if user is logged in via request headers/session
+            user = request.username if hasattr(request, 'username') else None
+            if user is not None:
+                # User is logged in - show main UI, hide login message
+                return gr.update(visible=False), gr.update(visible=True)
+            else:
+                # User is not logged in - show login message, hide main UI
+                return gr.update(visible=True), gr.update(visible=False)
+
+        # Check on page load
+        app.load(
+            fn=update_ui_visibility,
+            inputs=None,
+            outputs=[login_required_group, main_ui_group]
+        )
 
         # Update URL field when dataset is selected
         def update_url_from_dropdown(dataset_name):
