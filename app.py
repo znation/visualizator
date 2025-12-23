@@ -247,7 +247,7 @@ def create_app():
         # Dataset suggestions
         dataset_suggestions = {
             "Cars Dataset (Vega)": "https://raw.githubusercontent.com/vega/vega-datasets/master/data/cars.json",
-            "Movies Dataset (Vega)": "https://raw.githubusercontent.com/vega/vega-datasets/master/data/movies.csv",
+            "Movies Dataset (Vega)": "https://raw.githubusercontent.com/vega/vega-datasets/master/data/movies.json",
             "Iris Flowers": "https://raw.githubusercontent.com/mwaskom/seaborn-data/master/iris.csv",
             "Titanic Passengers": "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv",
             "World Population": "https://raw.githubusercontent.com/datasets/population/master/data/population.csv",
