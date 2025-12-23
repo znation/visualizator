@@ -613,6 +613,29 @@ def visualize(data_url: str, query: str, oauth_token: gr.OAuthToken | None, requ
         print(error_msg, file=sys.stderr)
         return None, log, error_msg
 
+# FastAPI app for custom routes
+custom_fastapi = FastAPI()
+
+@custom_fastapi.get("/data/{data_id}.csv")
+async def serve_csv_data(data_id: str):
+    """Serve cached DataFrame as CSV for Vega-Lite visualization."""
+    if data_id not in _dataframe_cache:
+        raise HTTPException(status_code=404, detail="Data not found")
+
+    df = _dataframe_cache[data_id]
+
+    # Convert DataFrame to CSV
+    csv_buffer = io.StringIO()
+    df.to_csv(csv_buffer, index=False)
+    csv_buffer.seek(0)
+
+    # Return as streaming response
+    return StreamingResponse(
+        io.BytesIO(csv_buffer.getvalue().encode('utf-8')),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={data_id}.csv"}
+    )
+
 # Create Gradio interface
 def create_app():
     with gr.Blocks(title="Visualizator") as app:
@@ -727,34 +750,12 @@ def create_app():
 
     return app
 
-# Create FastAPI app
-fastapi_app = FastAPI()
-
-# Add custom route to serve CSV data for parquet files
-@fastapi_app.get("/data/{data_id}.csv")
-async def serve_csv_data(data_id: str):
-    """Serve cached DataFrame as CSV for Vega-Lite visualization."""
-    if data_id not in _dataframe_cache:
-        raise HTTPException(status_code=404, detail="Data not found")
-
-    df = _dataframe_cache[data_id]
-
-    # Convert DataFrame to CSV
-    csv_buffer = io.StringIO()
-    df.to_csv(csv_buffer, index=False)
-    csv_buffer.seek(0)
-
-    # Return as streaming response
-    return StreamingResponse(
-        io.BytesIO(csv_buffer.getvalue().encode('utf-8')),
-        media_type="text/csv",
-        headers={"Content-Disposition": f"attachment; filename={data_id}.csv"}
-    )
-
 if __name__ == "__main__":
+    # Create Gradio app
     gradio_app = create_app()
-    # Mount Gradio app on FastAPI
-    app = gr.mount_gradio_app(fastapi_app, gradio_app, path="/")
+
+    # Mount Gradio app on the custom FastAPI app
+    app = gr.mount_gradio_app(custom_fastapi, gradio_app, path="/")
 
     # Launch with uvicorn
     import uvicorn
