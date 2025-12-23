@@ -194,6 +194,120 @@ def extract_fields_from_spec(spec: dict) -> set:
 
     return fields
 
+def map_invalid_fields_to_valid(
+    invalid_fields: set,
+    valid_columns: list,
+    token: Optional[str] = None
+) -> dict:
+    """
+    Use LLM to map invalid field names to the most similar valid column names.
+
+    Args:
+        invalid_fields: Set of invalid field names from the spec
+        valid_columns: List of actual column names in the data
+        token: Optional HuggingFace token
+
+    Returns:
+        Dictionary mapping invalid field names to suggested valid column names
+    """
+    try:
+        client = get_inference_client(token)
+
+        prompt = f"""You are helping fix a data visualization specification. The spec references field names that don't exist in the dataset.
+
+Invalid field names: {', '.join(sorted(invalid_fields))}
+Actual column names in dataset: {', '.join(valid_columns)}
+
+For each invalid field name, determine the most similar matching column name from the actual columns. Consider:
+- Exact matches with different casing
+- Similar names (e.g., "movie_title" vs "Title")
+- Abbreviated vs full names
+- Underscores vs camelCase vs spaces
+
+Return ONLY a JSON object mapping each invalid field to its best match, like this:
+{{"invalid_field1": "ActualColumn1", "invalid_field2": "ActualColumn2"}}
+
+Generate the mapping now:"""
+
+        response = client.chat.completions.create(
+            model="meta-llama/Llama-3.3-70B-Instruct",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=500
+        )
+
+        mapping_text = response.choices[0].message.content.strip()
+
+        # Clean up markdown code blocks if present
+        if mapping_text.startswith('```'):
+            lines = mapping_text.split('\n')
+            mapping_text = '\n'.join(lines[1:-1]) if len(lines) > 2 else mapping_text
+            mapping_text = mapping_text.replace('```json', '').replace('```', '').strip()
+
+        mapping = json.loads(mapping_text)
+        return mapping
+
+    except Exception as e:
+        print(f"Error mapping fields: {e}", file=sys.stderr)
+        return {}
+
+def replace_fields_in_spec(spec: dict, field_mapping: dict) -> dict:
+    """
+    Replace field names in a Vega-Lite spec according to the mapping.
+
+    Args:
+        spec: Vega-Lite specification dictionary
+        field_mapping: Dictionary mapping old field names to new field names
+
+    Returns:
+        Updated specification with corrected field names
+    """
+    import copy
+    spec = copy.deepcopy(spec)
+
+    def replace_in_encoding(obj):
+        """Recursively replace field names in encoding structures."""
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                if key == 'field' and isinstance(value, str) and value in field_mapping:
+                    obj[key] = field_mapping[value]
+                else:
+                    replace_in_encoding(value)
+        elif isinstance(obj, list):
+            for item in obj:
+                replace_in_encoding(item)
+
+    # Replace in encoding
+    if 'encoding' in spec:
+        replace_in_encoding(spec['encoding'])
+
+    # Replace in layers
+    if 'layer' in spec:
+        for i, layer in enumerate(spec['layer']):
+            spec['layer'][i] = replace_fields_in_spec(layer, field_mapping)
+
+    # Replace in concatenated views
+    for concat_type in ['hconcat', 'vconcat', 'concat']:
+        if concat_type in spec:
+            for i, view in enumerate(spec[concat_type]):
+                spec[concat_type][i] = replace_fields_in_spec(view, field_mapping)
+
+    # Replace in facets
+    if 'facet' in spec:
+        if isinstance(spec['facet'], dict) and 'field' in spec['facet']:
+            if spec['facet']['field'] in field_mapping:
+                spec['facet']['field'] = field_mapping[spec['facet']['field']]
+        if 'spec' in spec:
+            spec['spec'] = replace_fields_in_spec(spec['spec'], field_mapping)
+
+    # Replace in transforms
+    if 'transform' in spec:
+        for transform in spec['transform']:
+            if isinstance(transform, dict) and 'field' in transform:
+                if transform['field'] in field_mapping:
+                    transform['field'] = field_mapping[transform['field']]
+
+    return spec
+
 def validate_spec_fields(spec: dict, df: pd.DataFrame) -> Tuple[bool, Optional[str]]:
     """
     Validate that all fields in the spec exist in the DataFrame.
@@ -270,9 +384,36 @@ def create_visualization(
                 raise ValueError("Specification missing encoding or composition")
 
             # Validate field names
-            is_valid, field_error = validate_spec_fields(spec, df)
-            if not is_valid:
-                raise ValueError(field_error)
+            spec_fields = extract_fields_from_spec(spec)
+            data_columns = set(df.columns)
+            invalid_fields = spec_fields - data_columns
+
+            if invalid_fields:
+                log_messages.append(f"⚠ Found invalid field names: {', '.join(sorted(invalid_fields))}")
+                log_messages.append("  Attempting to map to correct column names...")
+
+                # Use LLM to map invalid fields to valid columns
+                field_mapping = map_invalid_fields_to_valid(invalid_fields, list(df.columns), token)
+
+                if field_mapping:
+                    log_messages.append(f"  Suggested mapping: {field_mapping}")
+                    # Apply the mapping to fix the spec
+                    spec = replace_fields_in_spec(spec, field_mapping)
+
+                    # Re-validate after fixing
+                    is_valid, field_error = validate_spec_fields(spec, df)
+                    if not is_valid:
+                        log_messages.append(f"✗ Field mapping failed: {field_error}")
+                        if attempt < max_retries - 1:
+                            log_messages.append("  Retrying from scratch...")
+                        continue
+                    else:
+                        log_messages.append("✓ Field names corrected successfully!")
+                else:
+                    log_messages.append("✗ Could not generate field mapping")
+                    if attempt < max_retries - 1:
+                        log_messages.append("  Retrying from scratch...")
+                    continue
 
             log_messages.append("✓ Specification generated and validated successfully!")
             return spec, None, "\n".join(log_messages)
