@@ -266,12 +266,40 @@ def replace_fields_in_spec(spec: dict, field_mapping: dict) -> dict:
     spec = copy.deepcopy(spec)
 
     def replace_text_with_mapping(text):
-        """Replace any occurrences of old field names in text with new field names."""
+        """Replace any occurrences of old field names in text with new field names.
+        Handles case-insensitive matching to catch capitalized versions in titles."""
         if not isinstance(text, str):
             return text
+
+        import re
         result = text
         for old_field, new_field in field_mapping.items():
+            # Case-sensitive exact match first
             result = result.replace(old_field, new_field)
+
+            # Also try case-insensitive replacement for titles
+            # This catches cases like "horsepower" field with "Horsepower" in title
+            pattern = re.compile(re.escape(old_field), re.IGNORECASE)
+
+            # Find all matches to preserve the original capitalization pattern
+            matches = list(pattern.finditer(result))
+            for match in reversed(matches):  # Process from end to avoid index shifting
+                matched_text = match.group()
+                # If the matched text is different from old_field (different case)
+                if matched_text != old_field:
+                    # Try to preserve the capitalization style
+                    if matched_text[0].isupper() and matched_text[1:].islower():
+                        # Title case: "Horsepower" -> capitalize new_field
+                        replacement = new_field.capitalize() if new_field else new_field
+                    elif matched_text.isupper():
+                        # All caps: "HORSEPOWER" -> uppercase new_field
+                        replacement = new_field.upper() if new_field else new_field
+                    else:
+                        # Mixed or other case -> use new_field as-is
+                        replacement = new_field
+
+                    result = result[:match.start()] + replacement + result[match.end():]
+
         return result
 
     def replace_in_encoding(obj):
