@@ -475,9 +475,17 @@ def create_app():
         # Add login button
         gr.LoginButton()
 
-        gr.Markdown("""
-        **Note:** You must be signed in with your Hugging Face account to generate visualizations.
-        """)
+        # Login required message (shown when not logged in)
+        login_required_group = gr.Markdown("""
+        ## Login Required
+
+        Please sign in with your Hugging Face account to use Visualizator.
+
+        This app uses the Hugging Face Inference API to generate visualizations,
+        which requires authentication.
+
+        Click the "Sign in with Hugging Face" button above to get started.
+        """, visible=True)
 
         # Dataset suggestions
         dataset_suggestions = {
@@ -493,8 +501,8 @@ def create_app():
             "NYC Airbnb Data": "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-04-05/airbnb.csv"
         }
 
-        # Main UI
-        with gr.Group() as main_ui_group:
+        # Main UI (hidden by default, shown when logged in)
+        with gr.Column(visible=False) as main_ui_group:
             with gr.Row():
                 with gr.Column():
                     dataset_dropdown = gr.Dropdown(
@@ -532,6 +540,21 @@ def create_app():
             with gr.Row():
                 log_output = gr.Textbox(label="Process Log", lines=10, interactive=False)
                 error_output = gr.Textbox(label="Error Message", lines=5, interactive=False)
+
+        # Function to check login state and toggle UI visibility
+        def check_login_state(profile: gr.OAuthProfile | None):
+            if profile is not None:
+                # User is logged in - show main UI, hide login message
+                return gr.update(visible=False), gr.update(visible=True)
+            else:
+                # User is not logged in - show login message, hide main UI
+                return gr.update(visible=True), gr.update(visible=False)
+
+        # Check login state on page load
+        app.load(
+            fn=check_login_state,
+            outputs=[login_required_group, main_ui_group]
+        )
 
         # Update URL field when dataset is selected
         def update_url_from_dropdown(dataset_name):
