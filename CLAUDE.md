@@ -20,7 +20,7 @@ As of now, a barebones initial implementation is runnable, roughly complete, and
 
 We are creating an app called Visualizator, to be run as a Hugging Face Space. The goal is to:
 
-* Take in a URL to a data file, could be parquet, csv, tsv, jsonl, etc. For now just csv and tsv.
+* Take in a URL to a data file, could be parquet, csv, tsv, jsonl, etc. Currently supports csv, tsv, json, and parquet.
 * Take in a query from the user about what to visualize, like "I want to see the relationship between X, Y, and Z", or "Create a heat map of time of day vs. number of hits"
 * Use an LLM to generate a vega-lite spec to match the appropriate type of chart to accommodate the user's query, and the data bindings to accommodate their data file URL's schema.
     * For this LLM, use Hugging Face Inference Providers. Since we are running inside a Space, it probably makes sense to implement authentication like this: https://huggingface.co/docs/hub/en/spaces-oauth

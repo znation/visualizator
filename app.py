@@ -18,7 +18,7 @@ def get_inference_client(token: Optional[str] = None) -> InferenceClient:
 
 def load_data_from_url(url: str) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
     """
-    Load data from a URL supporting CSV, TSV, and JSON formats.
+    Load data from a URL supporting CSV, TSV, JSON, and Parquet formats.
 
     Args:
         url: URL to the data file
@@ -31,7 +31,11 @@ def load_data_from_url(url: str) -> Tuple[Optional[pd.DataFrame], Optional[str]]
         response.raise_for_status()
 
         # Detect file type from URL or content-type
-        if url.endswith('.json') or 'application/json' in response.headers.get('content-type', ''):
+        if url.endswith('.parquet') or url.endswith('.parq') or 'application/vnd.apache.parquet' in response.headers.get('content-type', ''):
+            # For parquet, we need to use BytesIO since it's a binary format
+            import io
+            df = pd.read_parquet(io.BytesIO(response.content))
+        elif url.endswith('.json') or 'application/json' in response.headers.get('content-type', ''):
             df = pd.read_json(pd.io.common.StringIO(response.text))
         elif url.endswith('.tsv') or 'text/tab-separated-values' in response.headers.get('content-type', ''):
             df = pd.read_csv(pd.io.common.StringIO(response.text), sep='\t')
@@ -572,7 +576,10 @@ def create_app():
             "Global Temperature": "https://raw.githubusercontent.com/datasets/global-temp/master/data/annual.csv",
             "Netflix Titles": "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-04-20/netflix_titles.csv",
             "Pokemon Stats": "https://raw.githubusercontent.com/lgreski/pokemonData/master/Pokemon.csv",
-            "Seattle Weather": "https://raw.githubusercontent.com/vega/vega-datasets/master/data/seattle-weather.csv"
+            "Seattle Weather": "https://raw.githubusercontent.com/vega/vega-datasets/master/data/seattle-weather.csv",
+            "NYC Taxi Trips (Parquet)": "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2024-01.parquet",
+            "Spotify Top Songs (Parquet)": "https://huggingface.co/datasets/maharshipandya/spotify-tracks-dataset/resolve/main/dataset.parquet",
+            "Wine Quality (Parquet)": "https://huggingface.co/datasets/scikit-learn/wine-quality/resolve/main/wine-quality.parquet"
         }
 
         # Main UI (hidden by default, shown when logged in)
@@ -609,6 +616,7 @@ def create_app():
             - CSV files (.csv)
             - TSV files (.tsv)
             - JSON files (.json)
+            - Parquet files (.parquet)
             """)
 
             with gr.Row():
