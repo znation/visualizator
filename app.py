@@ -9,6 +9,13 @@ import io
 from huggingface_hub import InferenceClient
 from typing import Optional, Tuple
 import traceback
+from fastapi.responses import StreamingResponse
+from fastapi import HTTPException
+import uuid
+
+# Global dictionary to store DataFrames for serving as CSV
+# Key: unique ID, Value: DataFrame
+_dataframe_cache = {}
 
 # Initialize Hugging Face Inference Client
 def get_inference_client(token: Optional[str] = None) -> InferenceClient:
@@ -75,8 +82,7 @@ def generate_vega_lite_spec(
     schema: str,
     data_url: str,
     token: Optional[str] = None,
-    previous_error: Optional[str] = None,
-    is_parquet: bool = False
+    previous_error: Optional[str] = None
 ) -> Tuple[Optional[dict], Optional[str]]:
     """
     Generate a Vega-Lite specification using an LLM.
@@ -87,7 +93,6 @@ def generate_vega_lite_spec(
         data_url: URL to the data file
         token: Optional HuggingFace token
         previous_error: Optional error message from a previous attempt
-        is_parquet: Whether the data source is a parquet file
 
     Returns:
         Tuple of (vega_lite_spec_dict, error_message)
@@ -105,24 +110,18 @@ Error: {previous_error}
 Make sure to address this error in your new specification.
 """
 
-        # For parquet files, don't include data field in spec since we'll inject it
-        data_instruction = ""
-        if is_parquet:
-            data_instruction = """
-2. DO NOT include a "data" field in the specification - the data will be injected automatically"""
-        else:
-            data_instruction = f"""
-2. Use the data URL provided in the "data" field with "url" property: {data_url}"""
-
         prompt = f"""You are a data visualization expert. Generate a valid Vega-Lite specification (JSON) based on the user's query and data schema.
 
 User Query: {query}
 
 Data Schema:
 {schema}
+
+Data URL: {data_url}
 {error_feedback}
 Requirements:
-1. Generate ONLY valid Vega-Lite JSON specification{data_instruction}
+1. Generate ONLY valid Vega-Lite JSON specification
+2. Use the data URL provided in the "data" field with "url" property
 3. Choose appropriate mark types and encodings based on the query
 4. Include appropriate titles and labels
 5. Make sure the field names match exactly with the column names from the schema
@@ -149,11 +148,10 @@ Generate the Vega-Lite specification now:"""
         # Parse JSON
         spec = json.loads(spec_text)
 
-        # Ensure the data URL is set correctly (only for non-parquet files)
-        if not is_parquet:
-            if 'data' not in spec:
-                spec['data'] = {}
-            spec['data']['url'] = data_url
+        # Ensure the data URL is set correctly
+        if 'data' not in spec:
+            spec['data'] = {}
+        spec['data']['url'] = data_url
 
         return spec, None
 
@@ -433,7 +431,8 @@ def create_visualization(
     data_url: str,
     query: str,
     token: Optional[str] = None,
-    max_retries: int = 5
+    max_retries: int = 5,
+    app_base_url: str = ""
 ) -> Tuple[Optional[dict], Optional[str], str]:
     """
     Create a visualization by loading data and generating Vega-Lite spec with auto-retry.
@@ -443,6 +442,7 @@ def create_visualization(
         query: User's visualization query
         token: Optional HuggingFace token
         max_retries: Maximum number of retry attempts
+        app_base_url: Base URL of the Gradio app for serving CSV data
 
     Returns:
         Tuple of (vega_lite_spec, error_message, log_message)
@@ -460,19 +460,29 @@ def create_visualization(
     # Check if this is a parquet file (Vega-Lite doesn't support parquet URLs)
     is_parquet = data_url.endswith('.parquet') or data_url.endswith('.parq')
 
+    # For parquet files, generate a unique ID and cache the DataFrame
+    csv_data_id = None
+    effective_data_url = data_url
+    if is_parquet:
+        csv_data_id = str(uuid.uuid4())
+        _dataframe_cache[csv_data_id] = df
+        # Use app_base_url if provided, otherwise use relative path
+        if app_base_url:
+            effective_data_url = f"{app_base_url}/data/{csv_data_id}.csv"
+        else:
+            effective_data_url = f"/data/{csv_data_id}.csv"
+        log_messages.append(f"  Note: Parquet file - serving as CSV at {effective_data_url}")
+
     # Get schema
     schema = get_data_schema(df)
     log_messages.append(f"✓ Schema extracted")
-
-    if is_parquet:
-        log_messages.append("  Note: Parquet file - data will be injected inline (max 5000 rows)")
 
     # Try to generate valid spec with retries
     previous_error = None
     for attempt in range(max_retries):
         log_messages.append(f"\nAttempt {attempt + 1}/{max_retries}: Generating Vega-Lite specification...")
 
-        spec, error = generate_vega_lite_spec(query, schema, data_url, token, previous_error, is_parquet)
+        spec, error = generate_vega_lite_spec(query, schema, effective_data_url, token, previous_error)
 
         if error:
             log_messages.append(f"✗ Generation failed: {error}")
@@ -529,33 +539,6 @@ def create_visualization(
             # Fix up schema in case the LLM hallucinated
             spec['$schema'] = 'https://vega.github.io/schema/vega-lite/v5.json'
 
-            # For parquet files, inject the data as inline values
-            if is_parquet:
-                log_messages.append("  Injecting inline data for parquet file...")
-                # Sample data if it's too large (Vega-Lite can struggle with large datasets)
-                MAX_ROWS = 5000
-                data_to_inject = df
-                if len(df) > MAX_ROWS:
-                    log_messages.append(f"  Sampling {MAX_ROWS} rows from {len(df)} total rows")
-                    data_to_inject = df.sample(n=MAX_ROWS, random_state=42)
-
-                # Prepare data for JSON serialization
-                data_to_inject = data_to_inject.copy()
-
-                # Convert datetime columns to ISO format strings
-                for col in data_to_inject.columns:
-                    if pd.api.types.is_datetime64_any_dtype(data_to_inject[col]):
-                        # Convert to string, handling NaT values
-                        data_to_inject[col] = data_to_inject[col].astype(str).replace('NaT', None)
-
-                # Replace NaN and infinity values with None for JSON compatibility
-                data_to_inject = data_to_inject.replace([float('inf'), float('-inf')], None)
-                data_to_inject = data_to_inject.where(pd.notna(data_to_inject), None)
-
-                # Convert to records format (list of dicts)
-                spec['data'] = {'values': data_to_inject.to_dict('records')}
-                log_messages.append(f"✓ Injected {len(data_to_inject)} rows of data")
-
             # Validate with Altair to catch rendering errors
             log_messages.append("  Validating specification with Altair...")
             try:
@@ -582,7 +565,7 @@ def create_visualization(
     log_messages.append(f"\n✗ {error_msg}")
     return None, error_msg, "\n".join(log_messages)
 
-def visualize(data_url: str, query: str, oauth_token: gr.OAuthToken | None):
+def visualize(data_url: str, query: str, oauth_token: gr.OAuthToken | None, request: gr.Request):
     """
     Main function to create visualization for Gradio interface.
 
@@ -590,6 +573,7 @@ def visualize(data_url: str, query: str, oauth_token: gr.OAuthToken | None):
         data_url: URL to the data file
         query: User's visualization query
         oauth_token: OAuth token from Gradio (None if not logged in)
+        request: Gradio request object to get the base URL
 
     Returns:
         Tuple of (vega_lite_spec_dict, log_message, error_message)
@@ -607,7 +591,11 @@ def visualize(data_url: str, query: str, oauth_token: gr.OAuthToken | None):
     # Extract token from OAuth if user is logged in
     token = oauth_token.token
 
-    spec, error, log = create_visualization(data_url.strip(), query.strip(), token)
+    # Get the base URL from the request
+    # For Hugging Face Spaces, use the space URL; for local, use localhost
+    app_base_url = f"{request.url.scheme}://{request.url.netloc}"
+
+    spec, error, log = create_visualization(data_url.strip(), query.strip(), token, app_base_url=app_base_url)
 
     if error:
         return None, log, error
@@ -648,6 +636,7 @@ def create_app():
 
         # Dataset suggestions
         dataset_suggestions = {
+            "Spotify Top Songs (Parquet)": "https://huggingface.co/datasets/maharshipandya/spotify-tracks-dataset/resolve/refs%2Fconvert%2Fparquet/default/train/0000.parquet",
             "Cars Dataset (Vega)": "https://raw.githubusercontent.com/vega/vega-datasets/master/data/cars.json",
             "Movies Dataset (Vega)": "https://raw.githubusercontent.com/vega/vega-datasets/master/data/movies.json",
             "Iris Flowers": "https://raw.githubusercontent.com/mwaskom/seaborn-data/master/iris.csv",
@@ -659,7 +648,6 @@ def create_app():
             "Pokemon Stats": "https://raw.githubusercontent.com/lgreski/pokemonData/master/Pokemon.csv",
             "Seattle Weather": "https://raw.githubusercontent.com/vega/vega-datasets/master/data/seattle-weather.csv",
             "NYC Taxi Trips (Parquet)": "https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2024-01.parquet",
-            "Spotify Top Songs (Parquet)": "https://huggingface.co/datasets/maharshipandya/spotify-tracks-dataset/resolve/refs%2Fconvert%2Fparquet/default/train/0000.parquet",
             "Wine Quality (Parquet)": "https://huggingface.co/datasets/scikit-learn/wine-quality/resolve/main/wine-quality.parquet"
         }
 
@@ -735,6 +723,27 @@ def create_app():
             fn=visualize,
             inputs=[data_url_input, query_input],
             outputs=[output_plot, log_output, error_output]
+        )
+
+    # Add custom FastAPI route to serve CSV data for parquet files
+    @app.server.get("/data/{data_id}.csv")
+    async def serve_csv_data(data_id: str):
+        """Serve cached DataFrame as CSV for Vega-Lite visualization."""
+        if data_id not in _dataframe_cache:
+            raise HTTPException(status_code=404, detail="Data not found")
+
+        df = _dataframe_cache[data_id]
+
+        # Convert DataFrame to CSV
+        csv_buffer = io.StringIO()
+        df.to_csv(csv_buffer, index=False)
+        csv_buffer.seek(0)
+
+        # Return as streaming response
+        return StreamingResponse(
+            io.BytesIO(csv_buffer.getvalue().encode('utf-8')),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename={data_id}.csv"}
         )
 
     return app
