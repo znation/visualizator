@@ -135,6 +135,87 @@ Generate the Vega-Lite specification now:"""
     except Exception as e:
         return None, f"Error generating specification: {str(e)}\n{traceback.format_exc()}"
 
+def extract_fields_from_spec(spec: dict) -> set:
+    """
+    Extract all field names referenced in a Vega-Lite specification.
+
+    Args:
+        spec: Vega-Lite specification dictionary
+
+    Returns:
+        Set of field names used in the spec
+    """
+    fields = set()
+
+    def extract_from_encoding(encoding: dict):
+        """Recursively extract fields from encoding object."""
+        if isinstance(encoding, dict):
+            for key, value in encoding.items():
+                if isinstance(value, dict):
+                    if 'field' in value:
+                        fields.add(value['field'])
+                    # Recursively check nested structures
+                    extract_from_encoding(value)
+                elif isinstance(value, list):
+                    for item in value:
+                        extract_from_encoding(item)
+
+    # Check encoding
+    if 'encoding' in spec:
+        extract_from_encoding(spec['encoding'])
+
+    # Check layers (for layered charts)
+    if 'layer' in spec:
+        for layer in spec['layer']:
+            fields.update(extract_fields_from_spec(layer))
+
+    # Check concatenated views
+    for concat_type in ['hconcat', 'vconcat', 'concat']:
+        if concat_type in spec:
+            for view in spec[concat_type]:
+                fields.update(extract_fields_from_spec(view))
+
+    # Check facets
+    if 'facet' in spec:
+        if isinstance(spec['facet'], dict) and 'field' in spec['facet']:
+            fields.add(spec['facet']['field'])
+        if 'spec' in spec:
+            fields.update(extract_fields_from_spec(spec['spec']))
+
+    # Check transforms (filter, calculate, etc. may reference fields)
+    if 'transform' in spec:
+        for transform in spec['transform']:
+            if isinstance(transform, dict):
+                if 'field' in transform:
+                    fields.add(transform['field'])
+                if 'from' in transform and isinstance(transform['from'], dict):
+                    if 'fields' in transform['from']:
+                        fields.update(transform['from']['fields'])
+
+    return fields
+
+def validate_spec_fields(spec: dict, df: pd.DataFrame) -> Tuple[bool, Optional[str]]:
+    """
+    Validate that all fields in the spec exist in the DataFrame.
+
+    Args:
+        spec: Vega-Lite specification dictionary
+        df: pandas DataFrame with the actual data
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    spec_fields = extract_fields_from_spec(spec)
+    data_columns = set(df.columns)
+
+    # Find fields that don't exist in data
+    invalid_fields = spec_fields - data_columns
+
+    if invalid_fields:
+        return False, f"Spec references non-existent fields: {', '.join(sorted(invalid_fields))}. Available columns: {', '.join(sorted(data_columns))}"
+
+    return True, None
+
 def create_visualization(
     data_url: str,
     query: str,
@@ -187,6 +268,11 @@ def create_visualization(
                 raise ValueError("Specification missing mark or composition")
             if 'encoding' not in spec and 'layer' not in spec and 'hconcat' not in spec and 'vconcat' not in spec:
                 raise ValueError("Specification missing encoding or composition")
+
+            # Validate field names
+            is_valid, field_error = validate_spec_fields(spec, df)
+            if not is_valid:
+                raise ValueError(field_error)
 
             log_messages.append("✓ Specification generated and validated successfully!")
             return spec, None, "\n".join(log_messages)
