@@ -750,13 +750,13 @@ def create_app():
 
     return app
 
+# Create the Gradio app
+gradio_app = create_app()
+
+# Mount Gradio on the custom FastAPI app for both local and deployment
+demo = gr.mount_gradio_app(custom_fastapi, gradio_app, path="/")
+
 if __name__ == "__main__":
-    # Create Gradio app
-    gradio_app = create_app()
-
-    # Mount Gradio app on the custom FastAPI app
-    app = gr.mount_gradio_app(custom_fastapi, gradio_app, path="/")
-
-    # Launch with uvicorn
+    # For local development with uvicorn
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=7860)
+    uvicorn.run(demo, host="0.0.0.0", port=7860)
