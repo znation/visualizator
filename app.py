@@ -16,7 +16,7 @@ def get_inference_client(token: Optional[str] = None) -> InferenceClient:
 
 def load_data_from_url(url: str) -> Tuple[Optional[pd.DataFrame], Optional[str]]:
     """
-    Load data from a URL supporting CSV and TSV formats.
+    Load data from a URL supporting CSV, TSV, and JSON formats.
 
     Args:
         url: URL to the data file
@@ -29,7 +29,9 @@ def load_data_from_url(url: str) -> Tuple[Optional[pd.DataFrame], Optional[str]]
         response.raise_for_status()
 
         # Detect file type from URL or content-type
-        if url.endswith('.tsv') or 'text/tab-separated-values' in response.headers.get('content-type', ''):
+        if url.endswith('.json') or 'application/json' in response.headers.get('content-type', ''):
+            df = pd.read_json(pd.io.common.StringIO(response.text))
+        elif url.endswith('.tsv') or 'text/tab-separated-values' in response.headers.get('content-type', ''):
             df = pd.read_csv(pd.io.common.StringIO(response.text), sep='\t')
         elif url.endswith('.csv') or 'text/csv' in response.headers.get('content-type', ''):
             df = pd.read_csv(pd.io.common.StringIO(response.text))
@@ -235,7 +237,7 @@ def create_app():
 
         # Dataset suggestions
         dataset_suggestions = {
-            "Cars Dataset (Vega)": "https://raw.githubusercontent.com/vega/vega-datasets/master/data/cars.csv",
+            "Cars Dataset (Vega)": "https://raw.githubusercontent.com/vega/vega-datasets/master/data/cars.json",
             "Movies Dataset (Vega)": "https://raw.githubusercontent.com/vega/vega-datasets/master/data/movies.csv",
             "Iris Flowers": "https://raw.githubusercontent.com/mwaskom/seaborn-data/master/iris.csv",
             "Titanic Passengers": "https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv",
@@ -282,6 +284,7 @@ def create_app():
         ### Supported Formats
         - CSV files (.csv)
         - TSV files (.tsv)
+        - JSON files (.json)
 
         ### Note
         Sign in with your Hugging Face account to use the Inference API for generating visualizations.
