@@ -9,8 +9,8 @@ import io
 from huggingface_hub import InferenceClient
 from typing import Optional, Tuple
 import traceback
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
-from fastapi import HTTPException
 import uuid
 
 # Global dictionary to store DataFrames for serving as CSV
@@ -727,30 +727,35 @@ def create_app():
 
     return app
 
-def setup_csv_endpoint(app):
-    """Add custom FastAPI route to serve CSV data for parquet files."""
-    @app.get("/data/{data_id}.csv")
-    async def serve_csv_data(data_id: str):
-        """Serve cached DataFrame as CSV for Vega-Lite visualization."""
-        if data_id not in _dataframe_cache:
-            raise HTTPException(status_code=404, detail="Data not found")
+# Create FastAPI app
+fastapi_app = FastAPI()
 
-        df = _dataframe_cache[data_id]
+# Add custom route to serve CSV data for parquet files
+@fastapi_app.get("/data/{data_id}.csv")
+async def serve_csv_data(data_id: str):
+    """Serve cached DataFrame as CSV for Vega-Lite visualization."""
+    if data_id not in _dataframe_cache:
+        raise HTTPException(status_code=404, detail="Data not found")
 
-        # Convert DataFrame to CSV
-        csv_buffer = io.StringIO()
-        df.to_csv(csv_buffer, index=False)
-        csv_buffer.seek(0)
+    df = _dataframe_cache[data_id]
 
-        # Return as streaming response
-        return StreamingResponse(
-            io.BytesIO(csv_buffer.getvalue().encode('utf-8')),
-            media_type="text/csv",
-            headers={"Content-Disposition": f"attachment; filename={data_id}.csv"}
-        )
+    # Convert DataFrame to CSV
+    csv_buffer = io.StringIO()
+    df.to_csv(csv_buffer, index=False)
+    csv_buffer.seek(0)
+
+    # Return as streaming response
+    return StreamingResponse(
+        io.BytesIO(csv_buffer.getvalue().encode('utf-8')),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={data_id}.csv"}
+    )
 
 if __name__ == "__main__":
-    app = create_app()
-    # Add custom CSV endpoint to the FastAPI app
-    setup_csv_endpoint(app.fastapi_app)
-    app.launch()
+    gradio_app = create_app()
+    # Mount Gradio app on FastAPI
+    app = gr.mount_gradio_app(fastapi_app, gradio_app, path="/")
+
+    # Launch with uvicorn
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=7860)
