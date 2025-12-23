@@ -522,10 +522,6 @@ def create_app():
                 with gr.Column():
                     output_plot = gr.Plot(label="Visualization")
 
-            with gr.Row():
-                log_output = gr.Textbox(label="Process Log", lines=10, interactive=False)
-                error_output = gr.Textbox(label="Error Message", lines=5, interactive=False)
-
             gr.Markdown("""
             ### Examples
             - **Query**: "Show me a bar chart of sales by category"
@@ -537,6 +533,10 @@ def create_app():
             - TSV files (.tsv)
             - JSON files (.json)
             """)
+
+            with gr.Row():
+                log_output = gr.Textbox(label="Process Log", lines=10, interactive=False)
+                error_output = gr.Textbox(label="Error Message", lines=5, interactive=False)
 
         # Toggle UI visibility based on login state
         def update_ui_visibility(request: gr.Request):
