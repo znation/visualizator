@@ -74,7 +74,8 @@ def generate_vega_lite_spec(
     query: str,
     schema: str,
     data_url: str,
-    token: Optional[str] = None
+    token: Optional[str] = None,
+    previous_error: Optional[str] = None
 ) -> Tuple[Optional[dict], Optional[str]]:
     """
     Generate a Vega-Lite specification using an LLM.
@@ -84,12 +85,23 @@ def generate_vega_lite_spec(
         schema: Data schema description
         data_url: URL to the data file
         token: Optional HuggingFace token
+        previous_error: Optional error message from a previous attempt
 
     Returns:
         Tuple of (vega_lite_spec_dict, error_message)
     """
     try:
         client = get_inference_client(token)
+
+        error_feedback = ""
+        if previous_error:
+            error_feedback = f"""
+
+IMPORTANT: A previous specification attempt resulted in an error. Please fix the issue:
+Error: {previous_error}
+
+Make sure to address this error in your new specification.
+"""
 
         prompt = f"""You are a data visualization expert. Generate a valid Vega-Lite specification (JSON) based on the user's query and data schema.
 
@@ -99,7 +111,7 @@ Data Schema:
 {schema}
 
 Data URL: {data_url}
-
+{error_feedback}
 Requirements:
 1. Generate ONLY valid Vega-Lite JSON specification
 2. Use the data URL provided in the "data" field with "url" property
@@ -441,13 +453,15 @@ def create_visualization(
     log_messages.append(f"✓ Schema extracted")
 
     # Try to generate valid spec with retries
+    previous_error = None
     for attempt in range(max_retries):
         log_messages.append(f"\nAttempt {attempt + 1}/{max_retries}: Generating Vega-Lite specification...")
 
-        spec, error = generate_vega_lite_spec(query, schema, data_url, token)
+        spec, error = generate_vega_lite_spec(query, schema, data_url, token, previous_error)
 
         if error:
             log_messages.append(f"✗ Generation failed: {error}")
+            previous_error = error
             if attempt < max_retries - 1:
                 log_messages.append("  Retrying...")
             continue
@@ -481,23 +495,43 @@ def create_visualization(
                     # Re-validate after fixing
                     is_valid, field_error = validate_spec_fields(spec, df)
                     if not is_valid:
-                        log_messages.append(f"✗ Field mapping failed: {field_error}")
+                        error_msg = f"Field mapping failed: {field_error}"
+                        log_messages.append(f"✗ {error_msg}")
+                        previous_error = error_msg
                         if attempt < max_retries - 1:
                             log_messages.append("  Retrying from scratch...")
                         continue
                     else:
                         log_messages.append("✓ Field names corrected successfully!")
                 else:
-                    log_messages.append("✗ Could not generate field mapping")
+                    error_msg = "Could not generate field mapping"
+                    log_messages.append(f"✗ {error_msg}")
+                    previous_error = error_msg
                     if attempt < max_retries - 1:
                         log_messages.append("  Retrying from scratch...")
                     continue
 
-            log_messages.append("✓ Specification generated and validated successfully!")
-            return spec, None, "\n".join(log_messages)
+            # Fix up schema in case the LLM hallucinated
+            spec['$schema'] = 'https://vega.github.io/schema/vega-lite/v5.json'
+
+            # Validate with Altair to catch rendering errors
+            log_messages.append("  Validating specification with Altair...")
+            try:
+                chart = alt.Chart.from_dict(spec, validate=True)
+                log_messages.append("✓ Specification generated and validated successfully!")
+                return spec, None, "\n".join(log_messages)
+            except Exception as altair_error:
+                error_msg = f"Altair validation failed: {str(altair_error)}"
+                log_messages.append(f"✗ {error_msg}")
+                previous_error = error_msg
+                if attempt < max_retries - 1:
+                    log_messages.append("  Retrying with error feedback...")
+                continue
 
         except Exception as e:
-            log_messages.append(f"✗ Validation failed: {str(e)}")
+            error_msg = f"Validation failed: {str(e)}"
+            log_messages.append(f"✗ {error_msg}")
+            previous_error = error_msg
             if attempt < max_retries - 1:
                 log_messages.append("  Retrying...")
             continue
@@ -535,14 +569,19 @@ def visualize(data_url: str, query: str, oauth_token: gr.OAuthToken | None):
 
     if error:
         return None, log, error
-    
-    # fix up schema in case the LLM hallucinated (sometimes it generates wrong URLs resulting in a silent error in Altair)
-    spec['$schema'] = 'https://vega.github.io/schema/vega-lite/v5.json'
 
-    print(f"Spec is {spec}", file=sys.stderr)
-    chart = alt.Chart.from_dict(spec, validate=True)
-    print(f"Chart is {chart}", file=sys.stderr)
-    return chart, log, ""
+    # Create chart from the validated spec
+    # Note: spec has already been validated in create_visualization, including schema fix
+    try:
+        print(f"Spec is {spec}", file=sys.stderr)
+        chart = alt.Chart.from_dict(spec, validate=False)  # Already validated
+        print(f"Chart is {chart}", file=sys.stderr)
+        return chart, log, ""
+    except Exception as e:
+        # This should rarely happen since we validated in create_visualization
+        error_msg = f"Failed to create chart: {str(e)}"
+        print(error_msg, file=sys.stderr)
+        return None, log, error_msg
 
 # Create Gradio interface
 def create_app():
