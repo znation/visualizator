@@ -440,6 +440,10 @@ def visualize(data_url: str, query: str, oauth_token: gr.OAuthToken | None):
     Returns:
         Tuple of (vega_lite_spec_dict, log_message, error_message)
     """
+    # Check if user is logged in
+    if oauth_token is None:
+        return None, "", "Please sign in with your Hugging Face account to generate visualizations. Click the 'Sign in with Hugging Face' button above."
+
     if not data_url or not data_url.strip():
         return None, "", "Please provide a data URL"
 
@@ -447,7 +451,7 @@ def visualize(data_url: str, query: str, oauth_token: gr.OAuthToken | None):
         return None, "", "Please provide a visualization query"
 
     # Extract token from OAuth if user is logged in
-    token = oauth_token.token if oauth_token is not None else None
+    token = oauth_token.token
 
     spec, error, log = create_visualization(data_url.strip(), query.strip(), token)
 
@@ -469,20 +473,11 @@ def create_app():
         gr.Markdown("Generate data visualizations from URLs using natural language queries")
 
         # Add login button
-        login_button = gr.LoginButton()
+        gr.LoginButton()
 
-        # Login required message (visible when not logged in)
-        with gr.Group(visible=True) as login_required_group:
-            gr.Markdown("""
-            ## Login Required
-
-            Please sign in with your Hugging Face account to use Visualizator.
-
-            This app uses the Hugging Face Inference API to generate visualizations,
-            which requires authentication.
-
-            Click the "Sign in with Hugging Face" button above to get started.
-            """)
+        gr.Markdown("""
+        **Note:** You must be signed in with your Hugging Face account to generate visualizations.
+        """)
 
         # Dataset suggestions
         dataset_suggestions = {
@@ -498,8 +493,8 @@ def create_app():
             "NYC Airbnb Data": "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-04-05/airbnb.csv"
         }
 
-        # Main UI (hidden when not logged in)
-        with gr.Group(visible=False) as main_ui_group:
+        # Main UI
+        with gr.Group() as main_ui_group:
             with gr.Row():
                 with gr.Column():
                     dataset_dropdown = gr.Dropdown(
@@ -537,24 +532,6 @@ def create_app():
             with gr.Row():
                 log_output = gr.Textbox(label="Process Log", lines=10, interactive=False)
                 error_output = gr.Textbox(label="Error Message", lines=5, interactive=False)
-
-        # Toggle UI visibility based on login state
-        def update_ui_visibility(request: gr.Request):
-            # Check if user is logged in via request headers/session
-            user = request.username if hasattr(request, 'username') else None
-            if user is not None:
-                # User is logged in - show main UI, hide login message
-                return gr.update(visible=False), gr.update(visible=True)
-            else:
-                # User is not logged in - show login message, hide main UI
-                return gr.update(visible=True), gr.update(visible=False)
-
-        # Check on page load
-        app.load(
-            fn=update_ui_visibility,
-            inputs=None,
-            outputs=[login_required_group, main_ui_group]
-        )
 
         # Update URL field when dataset is selected
         def update_url_from_dropdown(dataset_name):
