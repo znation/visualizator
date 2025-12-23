@@ -265,6 +265,15 @@ def replace_fields_in_spec(spec: dict, field_mapping: dict) -> dict:
     import copy
     spec = copy.deepcopy(spec)
 
+    def replace_text_with_mapping(text):
+        """Replace any occurrences of old field names in text with new field names."""
+        if not isinstance(text, str):
+            return text
+        result = text
+        for old_field, new_field in field_mapping.items():
+            result = result.replace(old_field, new_field)
+        return result
+
     def replace_in_encoding(obj):
         """Recursively replace field names in encoding structures and update titles."""
         if isinstance(obj, dict):
@@ -274,22 +283,28 @@ def replace_fields_in_spec(spec: dict, field_mapping: dict) -> dict:
                 new_field = field_mapping[old_field]
                 obj['field'] = new_field
 
-                # Update title if it exists and matches the old field name
-                if 'title' in obj:
-                    if obj['title'] == old_field:
-                        # If title was the old field name, update it to the new field name
-                        obj['title'] = new_field
-                    elif isinstance(obj['title'], str) and old_field in obj['title']:
-                        # If title contains the old field name, replace it
-                        obj['title'] = obj['title'].replace(old_field, new_field)
-                else:
-                    # If no title exists, Vega-Lite will use the field name by default
-                    # We can optionally set an explicit title to ensure it uses the new field name
-                    pass
+                # Update title at encoding level if it exists
+                if 'title' in obj and isinstance(obj['title'], str):
+                    obj['title'] = replace_text_with_mapping(obj['title'])
+
+                # Update axis titles if they exist
+                if 'axis' in obj and isinstance(obj['axis'], dict):
+                    if 'title' in obj['axis'] and isinstance(obj['axis']['title'], str):
+                        obj['axis']['title'] = replace_text_with_mapping(obj['axis']['title'])
+
+                # Update legend titles if they exist
+                if 'legend' in obj and isinstance(obj['legend'], dict):
+                    if 'title' in obj['legend'] and isinstance(obj['legend']['title'], str):
+                        obj['legend']['title'] = replace_text_with_mapping(obj['legend']['title'])
+
+                # Update header titles if they exist
+                if 'header' in obj and isinstance(obj['header'], dict):
+                    if 'title' in obj['header'] and isinstance(obj['header']['title'], str):
+                        obj['header']['title'] = replace_text_with_mapping(obj['header']['title'])
 
             # Recursively process nested structures
             for key, value in obj.items():
-                if key != 'field' and key != 'title':  # Already handled above
+                if key not in ['field', 'title', 'axis', 'legend', 'header']:  # Already handled above
                     replace_in_encoding(value)
         elif isinstance(obj, list):
             for item in obj:
@@ -298,6 +313,13 @@ def replace_fields_in_spec(spec: dict, field_mapping: dict) -> dict:
     # Replace in encoding
     if 'encoding' in spec:
         replace_in_encoding(spec['encoding'])
+
+    # Update chart-level title
+    if 'title' in spec:
+        if isinstance(spec['title'], str):
+            spec['title'] = replace_text_with_mapping(spec['title'])
+        elif isinstance(spec['title'], dict) and 'text' in spec['title']:
+            spec['title']['text'] = replace_text_with_mapping(spec['title']['text'])
 
     # Replace in layers
     if 'layer' in spec:
@@ -318,8 +340,8 @@ def replace_fields_in_spec(spec: dict, field_mapping: dict) -> dict:
                 new_field = field_mapping[old_field]
                 spec['facet']['field'] = new_field
                 # Update facet title if it matches the old field
-                if 'title' in spec['facet'] and spec['facet']['title'] == old_field:
-                    spec['facet']['title'] = new_field
+                if 'title' in spec['facet'] and isinstance(spec['facet']['title'], str):
+                    spec['facet']['title'] = replace_text_with_mapping(spec['facet']['title'])
         if 'spec' in spec:
             spec['spec'] = replace_fields_in_spec(spec['spec'], field_mapping)
 
