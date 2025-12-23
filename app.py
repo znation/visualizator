@@ -725,8 +725,11 @@ def create_app():
             outputs=[output_plot, log_output, error_output]
         )
 
-    # Add custom FastAPI route to serve CSV data for parquet files
-    @app.server.get("/data/{data_id}.csv")
+    return app
+
+def setup_csv_endpoint(app):
+    """Add custom FastAPI route to serve CSV data for parquet files."""
+    @app.get("/data/{data_id}.csv")
     async def serve_csv_data(data_id: str):
         """Serve cached DataFrame as CSV for Vega-Lite visualization."""
         if data_id not in _dataframe_cache:
@@ -746,8 +749,8 @@ def create_app():
             headers={"Content-Disposition": f"attachment; filename={data_id}.csv"}
         )
 
-    return app
-
 if __name__ == "__main__":
     app = create_app()
+    # Add custom CSV endpoint to the FastAPI app
+    setup_csv_endpoint(app.fastapi_app)
     app.launch()
