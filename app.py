@@ -4,6 +4,7 @@ import pandas as pd
 import requests
 import json
 import os
+import sys
 from huggingface_hub import InferenceClient
 from typing import Optional, Tuple
 import traceback
@@ -225,7 +226,9 @@ def visualize(data_url: str, query: str, oauth_token: gr.OAuthToken | None):
     if error:
         return None, log, error
     
+    print(f"Spec is {spec}", file=sys.stderr)
     chart = alt.Chart.from_dict(spec)
+    print(f"Chart is {chart}", file=sys.stderr)
     return chart, log, ""
 
 # Create Gradio interface
