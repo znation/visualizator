@@ -572,7 +572,7 @@ def create_app():
             "Global Temperature": "https://raw.githubusercontent.com/datasets/global-temp/master/data/annual.csv",
             "Netflix Titles": "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2021/2021-04-20/netflix_titles.csv",
             "Pokemon Stats": "https://raw.githubusercontent.com/lgreski/pokemonData/master/Pokemon.csv",
-            "NYC Airbnb Data": "https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2022/2022-04-05/airbnb.csv"
+            "Seattle Weather": "https://raw.githubusercontent.com/vega/vega-datasets/master/data/seattle-weather.csv"
         }
 
         # Main UI (hidden by default, shown when logged in)
