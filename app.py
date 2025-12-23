@@ -253,24 +253,43 @@ Generate the mapping now:"""
 def replace_fields_in_spec(spec: dict, field_mapping: dict) -> dict:
     """
     Replace field names in a Vega-Lite spec according to the mapping.
+    Also updates titles to reflect the new field names.
 
     Args:
         spec: Vega-Lite specification dictionary
         field_mapping: Dictionary mapping old field names to new field names
 
     Returns:
-        Updated specification with corrected field names
+        Updated specification with corrected field names and titles
     """
     import copy
     spec = copy.deepcopy(spec)
 
     def replace_in_encoding(obj):
-        """Recursively replace field names in encoding structures."""
+        """Recursively replace field names in encoding structures and update titles."""
         if isinstance(obj, dict):
-            for key, value in obj.items():
-                if key == 'field' and isinstance(value, str) and value in field_mapping:
-                    obj[key] = field_mapping[value]
+            # Check if this is an encoding channel with a field
+            if 'field' in obj and isinstance(obj['field'], str) and obj['field'] in field_mapping:
+                old_field = obj['field']
+                new_field = field_mapping[old_field]
+                obj['field'] = new_field
+
+                # Update title if it exists and matches the old field name
+                if 'title' in obj:
+                    if obj['title'] == old_field:
+                        # If title was the old field name, update it to the new field name
+                        obj['title'] = new_field
+                    elif isinstance(obj['title'], str) and old_field in obj['title']:
+                        # If title contains the old field name, replace it
+                        obj['title'] = obj['title'].replace(old_field, new_field)
                 else:
+                    # If no title exists, Vega-Lite will use the field name by default
+                    # We can optionally set an explicit title to ensure it uses the new field name
+                    pass
+
+            # Recursively process nested structures
+            for key, value in obj.items():
+                if key != 'field' and key != 'title':  # Already handled above
                     replace_in_encoding(value)
         elif isinstance(obj, list):
             for item in obj:
@@ -295,7 +314,12 @@ def replace_fields_in_spec(spec: dict, field_mapping: dict) -> dict:
     if 'facet' in spec:
         if isinstance(spec['facet'], dict) and 'field' in spec['facet']:
             if spec['facet']['field'] in field_mapping:
-                spec['facet']['field'] = field_mapping[spec['facet']['field']]
+                old_field = spec['facet']['field']
+                new_field = field_mapping[old_field]
+                spec['facet']['field'] = new_field
+                # Update facet title if it matches the old field
+                if 'title' in spec['facet'] and spec['facet']['title'] == old_field:
+                    spec['facet']['title'] = new_field
         if 'spec' in spec:
             spec['spec'] = replace_fields_in_spec(spec['spec'], field_mapping)
 
